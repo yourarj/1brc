@@ -1,17 +1,22 @@
 use std::{
     collections::{BTreeMap, HashMap},
-    fs,
-    io::{BufRead, BufReader},
+    fs::{self, File},
+    os::fd::AsRawFd,
+    ptr,
 };
 
+use libc::mmap;
+
 fn main() {
-    let f = BufReader::new(fs::File::open("../measurements.txt").unwrap());
+    let f = fs::File::open("../measurements.txt").unwrap();
+    let map = memmap(&f);
 
     let mut stats = HashMap::<Vec<u8>, (f64, f64, usize, f64)>::new();
 
-    for line in f.split(b'\n') {
-        let line = line.unwrap();
-
+    for line in map.split(|c| *c == b'\n') {
+        if line.is_empty() {
+            break;
+        }
         let mut fields = line.rsplitn(2, |c| *c == b';');
         let temperature = fields.next().unwrap();
         let temperature: f64 = unsafe { std::str::from_utf8_unchecked(temperature) }
@@ -48,4 +53,26 @@ fn main() {
         }
     }
     print!("}}");
+}
+
+fn memmap(f: &File) -> &'_ [u8] {
+    let len = f.metadata().unwrap().len();
+    unsafe {
+        let ptr = mmap(
+            ptr::null_mut(),
+            len as libc::size_t,
+            libc::PROT_READ,
+            libc::MAP_SHARED,
+            f.as_raw_fd(),
+            0,
+        );
+        if ptr == libc::MAP_FAILED {
+            panic!("{:?}", std::io::Error::last_os_error());
+        } else {
+            if libc::madvise(ptr, len as libc::size_t, libc::MADV_SEQUENTIAL) != 0 {
+                panic!("{:?}", std::io::Error::last_os_error());
+            }
+            core::slice::from_raw_parts(ptr as *const u8, len as usize)
+        }
+    }
 }
