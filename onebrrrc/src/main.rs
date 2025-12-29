@@ -1,3 +1,7 @@
+#![feature(portable_simd)]
+
+mod simd_hasher;
+
 use std::{
     collections::{BTreeMap, HashMap},
     fs::{self, File},
@@ -6,12 +10,14 @@ use std::{
 };
 
 use libc::mmap;
+use simd_hasher::SimdBuildHasher;
 
 fn main() {
     let f = fs::File::open("../measurements.txt").unwrap();
     let map = memmap(&f);
 
-    let mut stats = HashMap::<Vec<u8>, (i16, i64, usize, i16)>::new();
+    let mut stats =
+        HashMap::<Vec<u8>, (i16, i64, usize, i16), SimdBuildHasher>::with_hasher(SimdBuildHasher);
 
     for line in map.split(|c| *c == b'\n') {
         if line.is_empty() {
