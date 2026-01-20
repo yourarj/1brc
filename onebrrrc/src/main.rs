@@ -1,6 +1,7 @@
 #![feature(portable_simd)]
 
 mod simd_hasher;
+mod simd_newline;
 
 use std::{
     collections::{BTreeMap, HashMap},
@@ -11,6 +12,7 @@ use std::{
 
 use libc::mmap;
 use simd_hasher::SimdBuildHasher;
+use simd_newline::{find_next_newline, find_next_semicolon};
 
 fn main() {
     let f = fs::File::open("../measurements.txt").unwrap();
@@ -19,15 +21,21 @@ fn main() {
     let mut stats =
         HashMap::<Vec<u8>, (i16, i64, usize, i16), SimdBuildHasher>::with_hasher(SimdBuildHasher);
 
-    for line in map.split(|c| *c == b'\n') {
+    let mut start = 0;
+    while let Some(pos) = find_next_newline(&map[start..]) {
+        let end = start + pos;
+
+        let line = &map[start..end];
         if line.is_empty() {
             break;
         }
 
-        let mut fields = line.rsplitn(2, |c| *c == b';');
-        let temperature = parse_temp(fields.next().unwrap());
-
-        let station = fields.next().unwrap();
+        let semicolon_pos = match find_next_semicolon(line) {
+            Some(pos) => pos,
+            None => continue,
+        };
+        let temperature = parse_temp(&line[semicolon_pos + 1..]);
+        let station = &line[..semicolon_pos];
 
         let stats = match stats.get_mut(station) {
             Some(stats) => stats,
@@ -40,6 +48,8 @@ fn main() {
         stats.1 += i64::from(temperature);
         stats.2 += 1;
         stats.3 = stats.3.max(temperature);
+
+        start = end + 1;
     }
 
     print!("{{");
